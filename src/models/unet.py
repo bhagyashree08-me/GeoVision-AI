@@ -6,6 +6,7 @@ from src.models.decoder import Decoder
 
 
 class UNet(nn.Module):
+
     def __init__(self, in_channels=3, out_channels=7):
         super().__init__()
 

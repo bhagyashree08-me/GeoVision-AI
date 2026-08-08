@@ -5,10 +5,14 @@ from src.models.blocks import DoubleConv
 
 
 class Encoder(nn.Module):
+
     def __init__(self):
         super().__init__()
 
-        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.pool = nn.MaxPool2d(
+            kernel_size=2,
+            stride=2
+        )
 
         self.enc1 = DoubleConv(3, 64)
         self.enc2 = DoubleConv(64, 128)
@@ -32,4 +36,9 @@ class Encoder(nn.Module):
 
         bottleneck = self.bottleneck(x)
 
-        return bottleneck, [skip1, skip2, skip3, skip4]
+        return bottleneck, [
+            skip1,
+            skip2,
+            skip3,
+            skip4
+        ]
