@@ -1,5 +1,4 @@
 
-
 # 🌍 GeoVision AI
 
 > **AI-powered Land Cover Segmentation using Deep Learning**
