@@ -1,6 +1,8 @@
+
 import os
 
 import torch
+from tqdm import tqdm
 
 from src.training.metrics import (
     pixel_accuracy,
@@ -25,29 +27,30 @@ class Trainer:
         self.model = model
         self.train_loader = train_loader
         self.val_loader = val_loader
-
         self.criterion = criterion
         self.optimizer = optimizer
-
         self.device = device
         self.num_classes = num_classes
 
         self.checkpoint_dir = checkpoint_dir
-
-        os.makedirs(
-            self.checkpoint_dir,
-            exist_ok=True
-        )
+        os.makedirs(self.checkpoint_dir, exist_ok=True)
 
         self.best_val_loss = float("inf")
 
-    def train_one_epoch(self):
+    def train_one_epoch(self, epoch, total_epochs):
 
         self.model.train()
-
         running_loss = 0.0
 
-        for images, masks in self.train_loader:
+        progress = tqdm(
+            self.train_loader,
+            total=len(self.train_loader),
+            desc=f"Epoch {epoch}/{total_epochs} [Train]",
+            dynamic_ncols=True,
+            leave=True,
+        )
+
+        for images, masks in progress:
 
             images = images.to(self.device)
             masks = masks.to(self.device).long()
@@ -56,22 +59,18 @@ class Trainer:
 
             outputs = self.model(images)
 
-            loss = self.criterion(
-                outputs,
-                masks
-            )
+            loss = self.criterion(outputs, masks)
 
             loss.backward()
-
             self.optimizer.step()
 
             running_loss += loss.item()
 
-        epoch_loss = (
-            running_loss / len(self.train_loader)
-        )
+            progress.set_postfix(
+                loss=f"{loss.item():.4f}"
+            )
 
-        return epoch_loss
+        return running_loss / len(self.train_loader)
 
     @torch.no_grad()
     def validate(self):
@@ -83,19 +82,22 @@ class Trainer:
         total_dice = 0.0
         total_accuracy = 0.0
 
-        num_batches = len(self.val_loader)
+        progress = tqdm(
+            self.val_loader,
+            total=len(self.val_loader),
+            desc="Validation",
+            dynamic_ncols=True,
+            leave=True,
+        )
 
-        for images, masks in self.val_loader:
+        for images, masks in progress:
 
             images = images.to(self.device)
             masks = masks.to(self.device).long()
 
             outputs = self.model(images)
 
-            loss = self.criterion(
-                outputs,
-                masks
-            )
+            loss = self.criterion(outputs, masks)
 
             running_loss += loss.item()
 
@@ -116,6 +118,8 @@ class Trainer:
                 masks
             )
 
+        num_batches = len(self.val_loader)
+
         return {
             "loss": running_loss / num_batches,
             "miou": total_iou / num_batches,
@@ -123,11 +127,7 @@ class Trainer:
             "accuracy": total_accuracy / num_batches,
         }
 
-    def save_checkpoint(
-        self,
-        epoch,
-        val_loss,
-    ):
+    def save_checkpoint(self, epoch, val_loss):
 
         checkpoint_path = os.path.join(
             self.checkpoint_dir,
@@ -145,42 +145,35 @@ class Trainer:
         )
 
         print(
-            f"Checkpoint saved: {checkpoint_path}"
+            f"\nCheckpoint saved: {checkpoint_path}"
         )
 
     def fit(self, epochs):
 
         history = []
 
+        print("\n" + "=" * 65)
+        print("                 GeoVision-AI Training")
+        print("=" * 65)
+
         for epoch in range(1, epochs + 1):
 
-            print(
-                f"\nEpoch {epoch}/{epochs}"
-            )
+            print(f"\nEpoch {epoch}/{epochs}")
 
-            train_loss = self.train_one_epoch()
+            train_loss = self.train_one_epoch(
+                epoch,
+                epochs
+            )
 
             metrics = self.validate()
 
-            print(
-                f"Train Loss : {train_loss:.4f}"
-            )
-
-            print(
-                f"Val Loss   : {metrics['loss']:.4f}"
-            )
-
-            print(
-                f"mIoU       : {metrics['miou']:.4f}"
-            )
-
-            print(
-                f"Dice       : {metrics['dice']:.4f}"
-            )
-
-            print(
-                f"Accuracy   : {metrics['accuracy']:.4f}"
-            )
+            print("\n" + "-" * 65)
+            print(f"Train Loss : {train_loss:.4f}")
+            print(f"Val Loss   : {metrics['loss']:.4f}")
+            print(f"Accuracy   : {metrics['accuracy']:.4f}")
+            print(f"mIoU       : {metrics['miou']:.4f}")
+            print(f"Dice       : {metrics['dice']:.4f}")
+            print("-" * 65)
 
             history.append(
                 {
@@ -198,5 +191,7 @@ class Trainer:
                     epoch,
                     metrics["loss"]
                 )
+
+        print("\nTraining completed.")
 
         return history

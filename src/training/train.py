@@ -7,9 +7,9 @@ from src.training.losses import CombinedLoss
 from src.training.trainer import Trainer
 
 
-DATASET_PATH = r"D:\datasets\DeepGlobe"
+DATASET_PATH = "/content/DeepGlobe"
 
-BATCH_SIZE = 4
+BATCH_SIZE = 2
 NUM_CLASSES = 7
 LEARNING_RATE = 1e-4
 
