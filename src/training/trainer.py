@@ -1,5 +1,6 @@
 
 import os
+import time
 
 import torch
 from tqdm import tqdm
@@ -24,22 +25,46 @@ class Trainer:
         num_classes=7,
         checkpoint_dir="outputs/checkpoints",
     ):
+
         self.model = model
         self.train_loader = train_loader
         self.val_loader = val_loader
+
         self.criterion = criterion
         self.optimizer = optimizer
+
         self.device = device
         self.num_classes = num_classes
 
         self.checkpoint_dir = checkpoint_dir
-        os.makedirs(self.checkpoint_dir, exist_ok=True)
+
+        os.makedirs(
+            self.checkpoint_dir,
+            exist_ok=True,
+        )
 
         self.best_val_loss = float("inf")
 
-    def train_one_epoch(self, epoch, total_epochs):
+        # Mixed Precision
+        self.use_amp = device.type == "cuda"
+
+        self.scaler = torch.amp.GradScaler(
+            "cuda",
+            enabled=self.use_amp,
+        )
+
+    # ======================================================
+    # TRAIN ONE EPOCH
+    # ======================================================
+
+    def train_one_epoch(
+        self,
+        epoch,
+        total_epochs,
+    ):
 
         self.model.train()
+
         running_loss = 0.0
 
         progress = tqdm(
@@ -52,17 +77,43 @@ class Trainer:
 
         for images, masks in progress:
 
-            images = images.to(self.device)
-            masks = masks.to(self.device).long()
+            images = images.to(
+                self.device,
+                non_blocking=True,
+            )
 
-            self.optimizer.zero_grad()
+            masks = masks.to(
+                self.device,
+                non_blocking=True,
+            ).long()
 
-            outputs = self.model(images)
+            self.optimizer.zero_grad(
+                set_to_none=True
+            )
 
-            loss = self.criterion(outputs, masks)
+            # Mixed precision forward pass
+            with torch.amp.autocast(
+                device_type="cuda",
+                enabled=self.use_amp,
+            ):
 
-            loss.backward()
-            self.optimizer.step()
+                outputs = self.model(images)
+
+                loss = self.criterion(
+                    outputs,
+                    masks,
+                )
+
+            # Backpropagation
+            self.scaler.scale(
+                loss
+            ).backward()
+
+            self.scaler.step(
+                self.optimizer
+            )
+
+            self.scaler.update()
 
             running_loss += loss.item()
 
@@ -70,7 +121,14 @@ class Trainer:
                 loss=f"{loss.item():.4f}"
             )
 
-        return running_loss / len(self.train_loader)
+        return (
+            running_loss
+            / len(self.train_loader)
+        )
+
+    # ======================================================
+    # VALIDATION
+    # ======================================================
 
     @torch.no_grad()
     def validate(self):
@@ -92,30 +150,45 @@ class Trainer:
 
         for images, masks in progress:
 
-            images = images.to(self.device)
-            masks = masks.to(self.device).long()
+            images = images.to(
+                self.device,
+                non_blocking=True,
+            )
 
-            outputs = self.model(images)
+            masks = masks.to(
+                self.device,
+                non_blocking=True,
+            ).long()
 
-            loss = self.criterion(outputs, masks)
+            with torch.amp.autocast(
+                device_type="cuda",
+                enabled=self.use_amp,
+            ):
+
+                outputs = self.model(images)
+
+                loss = self.criterion(
+                    outputs,
+                    masks,
+                )
 
             running_loss += loss.item()
 
             total_iou += mean_iou(
                 outputs,
                 masks,
-                self.num_classes
+                self.num_classes,
             )
 
             total_dice += dice_score(
                 outputs,
                 masks,
-                self.num_classes
+                self.num_classes,
             )
 
             total_accuracy += pixel_accuracy(
                 outputs,
-                masks
+                masks,
             )
 
         num_batches = len(self.val_loader)
@@ -127,11 +200,19 @@ class Trainer:
             "accuracy": total_accuracy / num_batches,
         }
 
-    def save_checkpoint(self, epoch, val_loss):
+    # ======================================================
+    # CHECKPOINT
+    # ======================================================
+
+    def save_checkpoint(
+        self,
+        epoch,
+        val_loss,
+    ):
 
         checkpoint_path = os.path.join(
             self.checkpoint_dir,
-            "best_model.pth"
+            "best_model.pth",
         )
 
         torch.save(
@@ -139,6 +220,7 @@ class Trainer:
                 "epoch": epoch,
                 "model_state_dict": self.model.state_dict(),
                 "optimizer_state_dict": self.optimizer.state_dict(),
+                "scaler_state_dict": self.scaler.state_dict(),
                 "val_loss": val_loss,
             },
             checkpoint_path,
@@ -148,50 +230,149 @@ class Trainer:
             f"\nCheckpoint saved: {checkpoint_path}"
         )
 
+    # ======================================================
+    # FULL TRAINING
+    # ======================================================
+
     def fit(self, epochs):
 
         history = []
 
-        print("\n" + "=" * 65)
-        print("                 GeoVision-AI Training")
-        print("=" * 65)
+        total_start = time.time()
+
+        print("\n" + "=" * 95)
+        print("                         GeoVision-AI TRAINING")
+        print("=" * 95)
 
         for epoch in range(1, epochs + 1):
 
-            print(f"\nEpoch {epoch}/{epochs}")
-
-            train_loss = self.train_one_epoch(
-                epoch,
-                epochs
+            print(
+                f"\nEpoch {epoch}/{epochs}"
             )
 
+            epoch_start = time.time()
+
+            # Training
+            train_loss = self.train_one_epoch(
+                epoch,
+                epochs,
+            )
+
+            # Validation
             metrics = self.validate()
 
-            print("\n" + "-" * 65)
+            epoch_time = time.time() - epoch_start
+
+            record = {
+                "epoch": epoch,
+                "train_loss": train_loss,
+                "val_loss": metrics["loss"],
+                "accuracy": metrics["accuracy"],
+                "miou": metrics["miou"],
+                "dice": metrics["dice"],
+                "time_min": epoch_time / 60,
+            }
+
+            history.append(record)
+
+            print("\n" + "-" * 95)
+
             print(f"Train Loss : {train_loss:.4f}")
             print(f"Val Loss   : {metrics['loss']:.4f}")
             print(f"Accuracy   : {metrics['accuracy']:.4f}")
             print(f"mIoU       : {metrics['miou']:.4f}")
             print(f"Dice       : {metrics['dice']:.4f}")
-            print("-" * 65)
-
-            history.append(
-                {
-                    "epoch": epoch,
-                    "train_loss": train_loss,
-                    **metrics,
-                }
+            print(
+                f"Epoch Time : {epoch_time / 60:.2f} min"
             )
 
+            print("-" * 95)
+
+            # Save best model
             if metrics["loss"] < self.best_val_loss:
 
                 self.best_val_loss = metrics["loss"]
 
                 self.save_checkpoint(
                     epoch,
-                    metrics["loss"]
+                    metrics["loss"],
                 )
 
-        print("\nTraining completed.")
+        # ==================================================
+        # FINAL TABLE
+        # ==================================================
+
+        total_time = time.time() - total_start
+
+        print("\n" + "=" * 105)
+        print("                         FINAL RESULTS")
+        print("=" * 105)
+
+        print(
+            f"\nTotal training time: "
+            f"{total_time / 60:.2f} minutes\n"
+        )
+
+        print(
+            f"{'Epoch':<8}"
+            f"{'Train Loss':<15}"
+            f"{'Val Loss':<15}"
+            f"{'Accuracy':<15}"
+            f"{'mIoU':<15}"
+            f"{'Dice':<15}"
+            f"{'Time(min)':<12}"
+        )
+
+        print("-" * 105)
+
+        for row in history:
+
+            print(
+                f"{row['epoch']:<8}"
+                f"{row['train_loss']:<15.4f}"
+                f"{row['val_loss']:<15.4f}"
+                f"{row['accuracy']:<15.4f}"
+                f"{row['miou']:<15.4f}"
+                f"{row['dice']:<15.4f}"
+                f"{row['time_min']:<12.2f}"
+            )
+
+        print("=" * 105)
+
+        # Best results
+        best_miou = max(
+            history,
+            key=lambda x: x["miou"],
+        )
+
+        best_dice = max(
+            history,
+            key=lambda x: x["dice"],
+        )
+
+        best_val_loss = min(
+            history,
+            key=lambda x: x["val_loss"],
+        )
+
+        print(
+            f"\nBest mIoU      : "
+            f"Epoch {best_miou['epoch']} "
+            f"→ {best_miou['miou']:.4f}"
+        )
+
+        print(
+            f"Best Dice      : "
+            f"Epoch {best_dice['epoch']} "
+            f"→ {best_dice['dice']:.4f}"
+        )
+
+        print(
+            f"Best Val Loss  : "
+            f"Epoch {best_val_loss['epoch']} "
+            f"→ {best_val_loss['val_loss']:.4f}"
+        )
+
+        print("=" * 105)
 
         return history

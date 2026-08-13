@@ -1,85 +1,140 @@
+
 import torch
 from torch.optim import Adam
 
-from src.dataset.dataloader import get_dataloaders
+from src.dataset.cached_dataloader import get_cached_dataloaders
 from src.models.unet import UNet
 from src.training.losses import CombinedLoss
 from src.training.trainer import Trainer
 
 
-DATASET_PATH = "/content/DeepGlobe"
+# ============================================================
+# CONFIGURATION
+# ============================================================
 
-BATCH_SIZE = 2
+CACHE_PATH = "/content/DeepGlobe_cache"
+
+BATCH_SIZE = 8
+
+NUM_WORKERS = 2
+
 NUM_CLASSES = 7
+
 LEARNING_RATE = 1e-4
 
-# Start with 1 epoch for the first real training test.
-EPOCHS = 1
+# FINAL TRAINING
+EPOCHS = 10
 
 CHECKPOINT_DIR = "outputs/checkpoints"
 
 
 def main():
 
-    # --------------------------------------------------
-    # Device
-    # --------------------------------------------------
+    # ========================================================
+    # CUDA OPTIMIZATION
+    # ========================================================
+
+    if torch.cuda.is_available():
+
+        torch.backends.cudnn.benchmark = True
+
+    # ========================================================
+    # DEVICE
+    # ========================================================
 
     device = torch.device(
-        "cuda" if torch.cuda.is_available() else "cpu"
+        "cuda"
+        if torch.cuda.is_available()
+        else "cpu"
     )
 
-    print("Device:", device)
+    print("\n" + "=" * 70)
 
-    # --------------------------------------------------
-    # Data
-    # --------------------------------------------------
+    print("GeoVision-AI")
 
-    train_loader, val_loader = get_dataloaders(
-        dataset_path=DATASET_PATH,
+    print("=" * 70)
+
+    print(
+        "\nDevice:",
+        device,
+    )
+
+    if device.type == "cuda":
+
+        print(
+            "GPU:",
+            torch.cuda.get_device_name(0),
+        )
+
+        print(
+            "CUDA:",
+            torch.version.cuda,
+        )
+
+    # ========================================================
+    # DATA
+    # ========================================================
+
+    train_loader, val_loader = get_cached_dataloaders(
+        cache_path=CACHE_PATH,
         batch_size=BATCH_SIZE,
-        num_workers=0,
+        num_workers=NUM_WORKERS,
     )
 
     print(
-        "Training batches   :",
-        len(train_loader)
+        "\nTraining batches   :",
+        len(train_loader),
     )
 
     print(
         "Validation batches :",
-        len(val_loader)
+        len(val_loader),
     )
 
-    # --------------------------------------------------
-    # Model
-    # --------------------------------------------------
+    print(
+        "Batch size         :",
+        BATCH_SIZE,
+    )
+
+    print(
+        "Workers            :",
+        NUM_WORKERS,
+    )
+
+    print(
+        "Epochs             :",
+        EPOCHS,
+    )
+
+    # ========================================================
+    # MODEL
+    # ========================================================
 
     model = UNet(
         in_channels=3,
         out_channels=NUM_CLASSES,
     ).to(device)
 
-    # --------------------------------------------------
-    # Loss
-    # --------------------------------------------------
+    # ========================================================
+    # LOSS
+    # ========================================================
 
     criterion = CombinedLoss(
-        num_classes=NUM_CLASSES
+        num_classes=NUM_CLASSES,
     )
 
-    # --------------------------------------------------
-    # Optimizer
-    # --------------------------------------------------
+    # ========================================================
+    # OPTIMIZER
+    # ========================================================
 
     optimizer = Adam(
         model.parameters(),
         lr=LEARNING_RATE,
     )
 
-    # --------------------------------------------------
-    # Trainer
-    # --------------------------------------------------
+    # ========================================================
+    # TRAINER
+    # ========================================================
 
     trainer = Trainer(
         model=model,
@@ -92,19 +147,17 @@ def main():
         checkpoint_dir=CHECKPOINT_DIR,
     )
 
-    # --------------------------------------------------
-    # Training
-    # --------------------------------------------------
+    # ========================================================
+    # TRAIN
+    # ========================================================
 
     history = trainer.fit(
-        epochs=EPOCHS
+        epochs=EPOCHS,
     )
 
     print("\nTraining completed.")
 
-    print("\nHistory:")
-    for record in history:
-        print(record)
+    return history
 
 
 if __name__ == "__main__":
