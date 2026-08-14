@@ -230,6 +230,30 @@ class Trainer:
             f"\nCheckpoint saved: {checkpoint_path}"
         )
 
+        # Persistent backup in Google Drive
+        drive_checkpoint_dir = "/content/drive/MyDrive/GeoVision-AI/checkpoints"
+        os.makedirs(drive_checkpoint_dir, exist_ok=True)
+
+        drive_checkpoint_path = os.path.join(
+            drive_checkpoint_dir,
+            "best_model.pth",
+        )
+
+        torch.save(
+            {
+                "epoch": epoch,
+                "model_state_dict": self.model.state_dict(),
+                "optimizer_state_dict": self.optimizer.state_dict(),
+                "scaler_state_dict": self.scaler.state_dict(),
+                "val_loss": val_loss,
+            },
+            drive_checkpoint_path,
+        )
+
+        print(
+            f"Drive backup saved: {drive_checkpoint_path}"
+        )
+
     # ======================================================
     # FULL TRAINING
     # ======================================================
