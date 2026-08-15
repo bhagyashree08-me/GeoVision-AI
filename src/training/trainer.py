@@ -230,9 +230,14 @@ class Trainer:
             f"\nCheckpoint saved: {checkpoint_path}"
         )
 
-        # Persistent backup in Google Drive
-        drive_checkpoint_dir = "/content/drive/MyDrive/GeoVision-AI/checkpoints"
-        os.makedirs(drive_checkpoint_dir, exist_ok=True)
+        # Persistent baseline backup in Google Drive
+        drive_checkpoint_dir = (
+            "/content/drive/MyDrive/GeoVision-AI/checkpoints/baseline"
+        )
+        os.makedirs(
+            drive_checkpoint_dir,
+            exist_ok=True,
+        )
 
         drive_checkpoint_path = os.path.join(
             drive_checkpoint_dir,
