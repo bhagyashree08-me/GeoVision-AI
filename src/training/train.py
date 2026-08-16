@@ -25,7 +25,7 @@ LEARNING_RATE = 1e-4
 # FINAL TRAINING
 EPOCHS = 10
 
-CHECKPOINT_DIR = "outputs/checkpoints_weighted"
+CHECKPOINT_DIR = "outputs/checkpoints"
 
 
 def main():
